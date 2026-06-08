@@ -20,6 +20,10 @@ export class OpenAICompatProvider extends BaseProvider {
   /** Per-provider HTTP timeout override. Cloud APIs finish in ~15s; locally-hosted
    * inference (llama.cpp / vLLM on CPU) can take 30-120s for long prompts. Default 15000. */
   private readonly timeoutMs: number;
+  /** NVIDIA NIM models reject any request that permits parallel tool calls with
+   * `400 This model only supports single tool-calls at once!`. When set, pin
+   * parallel_tool_calls to false whenever tools are in play. See issue #255. */
+  private readonly forceSingleToolCall: boolean;
 
   constructor(opts: {
     platform: Platform;
@@ -29,6 +33,7 @@ export class OpenAICompatProvider extends BaseProvider {
     validateUrl?: string;
     timeoutMs?: number;
     keyless?: boolean;
+    forceSingleToolCall?: boolean;
   }) {
     super();
     this.platform = opts.platform;
@@ -38,6 +43,16 @@ export class OpenAICompatProvider extends BaseProvider {
     this.validateUrl = opts.validateUrl;
     this.timeoutMs = opts.timeoutMs ?? 15000;
     this.keyless = opts.keyless ?? false;
+    this.forceSingleToolCall = opts.forceSingleToolCall ?? false;
+  }
+
+  /** Resolve the parallel_tool_calls flag to send upstream. For providers that
+   * only accept single tool calls (NVIDIA NIM), force `false` whenever tools are
+   * present so the model never tries to emit two at once and 400s; otherwise pass
+   * the caller's value through unchanged. See issue #255. */
+  private resolveParallelToolCalls(options?: CompletionOptions): boolean | undefined {
+    if (this.forceSingleToolCall && options?.tools && options.tools.length > 0) return false;
+    return options?.parallel_tool_calls;
   }
 
   /** Keyless providers (Kilo's anonymous free tier) must send NO Authorization
@@ -68,7 +83,7 @@ export class OpenAICompatProvider extends BaseProvider {
         top_p: options?.top_p,
         tools: options?.tools,
         tool_choice: options?.tool_choice,
-        parallel_tool_calls: options?.parallel_tool_calls,
+        parallel_tool_calls: this.resolveParallelToolCalls(options),
       }),
     }, options?.timeoutMs ?? this.timeoutMs);
 
@@ -116,7 +131,7 @@ export class OpenAICompatProvider extends BaseProvider {
         top_p: options?.top_p,
         tools: options?.tools,
         tool_choice: options?.tool_choice,
-        parallel_tool_calls: options?.parallel_tool_calls,
+        parallel_tool_calls: this.resolveParallelToolCalls(options),
         stream: true,
       }),
     }, this.timeoutMs);
