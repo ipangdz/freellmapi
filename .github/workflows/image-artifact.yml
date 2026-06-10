@@ -1,0 +1,19 @@
+name: Image artifact
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          tags: freellmapi:local
+          outputs: type=docker,dest=/tmp/freellmapi.tar
+      - run: gzip /tmp/freellmapi.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freellmapi-image
+          path: /tmp/freellmapi.tar.gz
